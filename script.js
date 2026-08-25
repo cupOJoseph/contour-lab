@@ -1,0 +1,435 @@
+const REFERENCE_WIDTH = 878;
+const REFERENCE_HEIGHT = 1180;
+const ARTWORK_CENTER = [620, 570];
+const CONTOUR_EXTENSION = Math.hypot(REFERENCE_WIDTH, REFERENCE_HEIGHT) * 4;
+const DOTS_PER_LINE = 2;
+const DOT_TRAVEL_MS = 7000;
+
+const DEFAULTS = Object.freeze({
+  lineCount: 10,
+  centerX: 0,
+  centerY: 0,
+  spread: 100,
+  bend: 100,
+  rotation: 0,
+  lineWidth: 3,
+  opacity: 78,
+  showDots: false,
+  background: "#315ea8",
+  lineColor: "#edf4ff",
+  signatureColor: "#ffffff",
+  signature: "Open Offering",
+  showSignature: true
+});
+
+const SOURCE_CONTOURS = [
+  [350, -30, 430, 185, 505, 385, 558, 422, 613, 461, 649, 389, 668, 283, 685, 183, 681, 66, 687, -30],
+  [138, -30, 264, 190, 411, 427, 515, 493, 587, 538, 641, 493, 670, 394, 708, 266, 704, 100, 719, -30],
+  [-30, 330, 162, 483, 359, 616, 477, 624, 587, 632, 646, 559, 683, 444, 725, 311, 733, 111, 752, -30],
+  [-30, 783, 235, 797, 466, 795, 587, 666, 682, 565, 711, 386, 739, 230, 764, 94, 777, 17, 786, -30],
+  [-30, 1056, 231, 978, 461, 859, 605, 718, 705, 620, 748, 439, 779, 258, 804, 114, 816, 17, 820, -30],
+  [82, 1210, 279, 1046, 501, 903, 640, 751, 747, 635, 794, 457, 829, 278, 852, 151, 866, 35, 873, -30],
+  [295, 1210, 457, 1027, 607, 874, 714, 716, 806, 580, 849, 411, 882, 251, 897, 173, 910, 69, 918, -30],
+  [378, 1210, 526, 1032, 652, 888, 753, 726, 836, 592, 883, 423, 918, 260, 936, 176, 949, 71, 958, -30],
+  [412, 1210, 557, 1045, 690, 899, 789, 740, 872, 606, 918, 438, 953, 274, 973, 181, 987, 72, 997, -30],
+  [448, 1210, 593, 1053, 724, 910, 824, 753, 909, 619, 953, 452, 989, 287, 1009, 193, 1025, 80, 1035, -30]
+];
+
+const form = document.querySelector("#controls");
+const canvas = document.querySelector(".contours");
+const resetButton = document.querySelector("#reset-button");
+const pauseButton = document.querySelector("#pause-button");
+const exportSvgButton = document.querySelector("#export-svg-button");
+const exportPngButton = document.querySelector("#export-png-button");
+let frameRequest;
+let motionTime = 0;
+let previousFrameTime;
+let motionPaused = false;
+
+function readSettings() {
+  const data = new FormData(form);
+
+  return {
+    lineCount: Number(data.get("lineCount")),
+    centerX: Number(data.get("centerX")),
+    centerY: Number(data.get("centerY")),
+    spread: Number(data.get("spread")),
+    bend: Number(data.get("bend")),
+    rotation: Number(data.get("rotation")),
+    lineWidth: Number(data.get("lineWidth")),
+    opacity: Number(data.get("opacity")),
+    showDots: data.get("showDots") === "on",
+    background: data.get("background"),
+    lineColor: data.get("lineColor"),
+    signatureColor: data.get("signatureColor"),
+    signature: data.get("signature").trim(),
+    showSignature: data.get("showSignature") === "on"
+  };
+}
+
+function interpolateContour(position) {
+  const lastIndex = SOURCE_CONTOURS.length - 1;
+  const lowerIndex = Math.max(0, Math.min(lastIndex - 1, Math.floor(position)));
+  const upperIndex = lowerIndex + 1;
+  const amount = position - lowerIndex;
+
+  return SOURCE_CONTOURS[lowerIndex].map((value, index) => {
+    const nextValue = SOURCE_CONTOURS[upperIndex][index];
+    return value + (nextValue - value) * amount;
+  });
+}
+
+function transformPoint(x, y, centerPoint, settings) {
+  const spread = settings.spread / 100;
+  const bend = settings.bend / 100;
+  const rotation = (settings.rotation * Math.PI) / 180;
+  const spreadX = centerPoint[0] + (x - centerPoint[0]) * spread;
+  const spreadY = centerPoint[1] + (y - centerPoint[1]) * spread;
+  const bentX = ARTWORK_CENTER[0] + (spreadX - ARTWORK_CENTER[0]) * bend;
+  const relativeX = bentX - ARTWORK_CENTER[0];
+  const relativeY = spreadY - ARTWORK_CENTER[1];
+
+  return [
+    ARTWORK_CENTER[0] + relativeX * Math.cos(rotation) - relativeY * Math.sin(rotation) + (settings.centerX / 100) * REFERENCE_WIDTH,
+    ARTWORK_CENTER[1] + relativeX * Math.sin(rotation) + relativeY * Math.cos(rotation) + (settings.centerY / 100) * REFERENCE_HEIGHT
+  ];
+}
+
+function buildContourGeometry(points, centerPoints, settings) {
+  const transformed = [];
+
+  for (let index = 0; index < points.length; index += 2) {
+    transformed.push(...transformPoint(points[index], points[index + 1], [centerPoints[index], centerPoints[index + 1]], settings));
+  }
+
+  const last = transformed.length - 2;
+  const startDirectionX = transformed[0] - transformed[2];
+  const startDirectionY = transformed[1] - transformed[3];
+  const startLength = Math.hypot(startDirectionX, startDirectionY) || 1;
+  const endDirectionX = transformed[last] - transformed[last - 2];
+  const endDirectionY = transformed[last + 1] - transformed[last - 1];
+  const endLength = Math.hypot(endDirectionX, endDirectionY) || 1;
+  const extendedStart = [
+    transformed[0] + (startDirectionX / startLength) * CONTOUR_EXTENSION,
+    transformed[1] + (startDirectionY / startLength) * CONTOUR_EXTENSION
+  ];
+  const extendedEnd = [
+    transformed[last] + (endDirectionX / endLength) * CONTOUR_EXTENSION,
+    transformed[last + 1] + (endDirectionY / endLength) * CONTOUR_EXTENSION
+  ];
+
+  return { points: transformed, extendedStart, extendedEnd };
+}
+
+function traceContour(context, geometry) {
+  const { points, extendedStart, extendedEnd } = geometry;
+  context.beginPath();
+  context.moveTo(...extendedStart);
+  context.lineTo(points[0], points[1]);
+  for (let index = 2; index < points.length; index += 6) {
+    context.bezierCurveTo(
+      points[index], points[index + 1],
+      points[index + 2], points[index + 3],
+      points[index + 4], points[index + 5]
+    );
+  }
+  context.lineTo(...extendedEnd);
+  context.stroke();
+}
+
+function buildContourGeometries(settings) {
+  const centerContour = interpolateContour((SOURCE_CONTOURS.length - 1) / 2);
+  const geometries = [];
+
+  for (let index = 0; index < settings.lineCount; index += 1) {
+    const position = (index / (settings.lineCount - 1)) * (SOURCE_CONTOURS.length - 1);
+    geometries.push(buildContourGeometry(interpolateContour(position), centerContour, settings));
+  }
+
+  return geometries;
+}
+
+function sampleContour(points) {
+  const samples = [[points[0], points[1]]];
+
+  for (let index = 2; index < points.length; index += 6) {
+    const start = samples[samples.length - 1];
+    const controlA = [points[index], points[index + 1]];
+    const controlB = [points[index + 2], points[index + 3]];
+    const end = [points[index + 4], points[index + 5]];
+
+    for (let step = 1; step <= 28; step += 1) {
+      const amount = step / 28;
+      const inverse = 1 - amount;
+      samples.push([
+        inverse ** 3 * start[0] + 3 * inverse ** 2 * amount * controlA[0] + 3 * inverse * amount ** 2 * controlB[0] + amount ** 3 * end[0],
+        inverse ** 3 * start[1] + 3 * inverse ** 2 * amount * controlA[1] + 3 * inverse * amount ** 2 * controlB[1] + amount ** 3 * end[1]
+      ]);
+    }
+  }
+
+  return samples;
+}
+
+function pointAlongContour(samples, progress) {
+  const lengths = [];
+  let totalLength = 0;
+
+  for (let index = 1; index < samples.length; index += 1) {
+    totalLength += Math.hypot(samples[index][0] - samples[index - 1][0], samples[index][1] - samples[index - 1][1]);
+    lengths.push(totalLength);
+  }
+
+  const target = progress * totalLength;
+  const segmentIndex = Math.max(0, lengths.findIndex((length) => length >= target));
+  const previousLength = segmentIndex === 0 ? 0 : lengths[segmentIndex - 1];
+  const segmentLength = lengths[segmentIndex] - previousLength || 1;
+  const amount = (target - previousLength) / segmentLength;
+  const start = samples[segmentIndex];
+  const end = samples[segmentIndex + 1];
+
+  return [
+    start[0] + (end[0] - start[0]) * amount,
+    start[1] + (end[1] - start[1]) * amount
+  ];
+}
+
+function getDotPositions(contours, settings, timestamp) {
+  const dots = [];
+
+  contours.forEach((points, lineIndex) => {
+    const samples = sampleContour(points);
+
+    for (let dotIndex = 0; dotIndex < DOTS_PER_LINE; dotIndex += 1) {
+      const phase = (timestamp / DOT_TRAVEL_MS + dotIndex / DOTS_PER_LINE + lineIndex * 0.037) % 1;
+      const progress = 1 - phase;
+      const [x, y] = pointAlongContour(samples, progress);
+      dots.push({ x, y, radius: Math.max(2.5, settings.lineWidth * 1.45) });
+    }
+  });
+
+  return dots;
+}
+
+function drawMovingDots(context, contours, settings, timestamp) {
+  context.save();
+  context.globalAlpha = Math.min(1, settings.opacity / 100 + 0.18);
+  context.fillStyle = settings.lineColor;
+  getDotPositions(contours, settings, timestamp).forEach(({ x, y, radius }) => {
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+  });
+  context.restore();
+}
+
+function renderScene(context, width, height, settings, timestamp = 0) {
+  const scale = Math.max(width / REFERENCE_WIDTH, height / REFERENCE_HEIGHT);
+  const artworkWidth = REFERENCE_WIDTH * scale;
+  const artworkHeight = REFERENCE_HEIGHT * scale;
+  const offsetX = (width - artworkWidth) / 2;
+  const offsetY = (height - artworkHeight) / 2;
+  const geometries = buildContourGeometries(settings);
+
+  context.save();
+  context.fillStyle = settings.background;
+  context.fillRect(0, 0, width, height);
+  context.translate(offsetX, offsetY);
+  context.scale(scale, scale);
+  context.strokeStyle = settings.lineColor;
+  context.lineWidth = settings.lineWidth;
+  context.globalAlpha = settings.opacity / 100;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  geometries.forEach((geometry) => traceContour(context, geometry));
+
+  if (settings.showDots) drawMovingDots(context, geometries.map(({ points }) => points), settings, timestamp);
+
+  if (settings.showSignature && settings.signature) {
+    context.globalAlpha = 1;
+    context.fillStyle = settings.signatureColor;
+    context.font = "700 21px Arial, Helvetica, sans-serif";
+    context.textAlign = "right";
+    context.textBaseline = "alphabetic";
+    context.fillText(settings.signature, 858, 1074, 330);
+  }
+  context.restore();
+}
+
+function drawPreview(timestamp = 0) {
+  const bounds = canvas.getBoundingClientRect();
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const context = canvas.getContext("2d");
+
+  canvas.width = Math.round(bounds.width * pixelRatio);
+  canvas.height = Math.round(bounds.height * pixelRatio);
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, bounds.width, bounds.height);
+  const settings = readSettings();
+
+  if (settings.showDots && !motionPaused) {
+    if (previousFrameTime !== undefined) {
+      motionTime += Math.min(timestamp - previousFrameTime, 100);
+    }
+    previousFrameTime = timestamp;
+  } else {
+    previousFrameTime = undefined;
+  }
+
+  renderScene(context, bounds.width, bounds.height, settings, motionTime);
+  if (settings.showDots && !motionPaused) frameRequest = requestAnimationFrame(drawPreview);
+}
+
+function scheduleDraw() {
+  cancelAnimationFrame(frameRequest);
+  frameRequest = requestAnimationFrame(drawPreview);
+}
+
+function updateLabels() {
+  const settings = readSettings();
+  const values = {
+    "line-count": settings.lineCount,
+    "center-x": `${settings.centerX}%`,
+    "center-y": `${settings.centerY}%`,
+    spread: `${settings.spread}%`,
+    bend: `${settings.bend}%`,
+    rotation: `${settings.rotation}°`,
+    "line-width": `${settings.lineWidth}px`,
+    opacity: `${settings.opacity}%`
+  };
+
+  Object.entries(values).forEach(([id, value]) => {
+    document.querySelector(`output[for="${id}"]`).value = value;
+  });
+
+  ["background", "lineColor", "signatureColor"].forEach((name) => {
+    document.querySelector(`[data-color-value="${name}"]`).textContent = settings[name].toUpperCase();
+  });
+}
+
+function update() {
+  const settings = readSettings();
+  if (!settings.showDots) {
+    motionPaused = false;
+    motionTime = 0;
+    previousFrameTime = undefined;
+  }
+  pauseButton.disabled = !settings.showDots;
+  pauseButton.textContent = motionPaused ? "Resume dots" : "Pause dots";
+  pauseButton.setAttribute("aria-pressed", String(motionPaused));
+  updateLabels();
+  scheduleDraw();
+}
+
+function toggleMotion() {
+  if (!readSettings().showDots) return;
+  motionPaused = !motionPaused;
+  previousFrameTime = undefined;
+  pauseButton.textContent = motionPaused ? "Resume dots" : "Pause dots";
+  pauseButton.setAttribute("aria-pressed", String(motionPaused));
+  scheduleDraw();
+}
+
+function resetControls() {
+  Object.entries(DEFAULTS).forEach(([name, value]) => {
+    const input = form.elements.namedItem(name);
+    if (input.type === "checkbox") input.checked = value;
+    else input.value = value;
+  });
+  update();
+}
+
+function downloadBlob(blob, filename) {
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function exportPng() {
+  const exportCanvas = document.createElement("canvas");
+  const context = exportCanvas.getContext("2d");
+  exportCanvas.width = REFERENCE_WIDTH;
+  exportCanvas.height = REFERENCE_HEIGHT;
+  renderScene(context, REFERENCE_WIDTH, REFERENCE_HEIGHT, readSettings(), motionTime);
+
+  exportCanvas.toBlob((blob) => {
+    if (!blob) return;
+    downloadBlob(blob, "contour-poster.png");
+  }, "image/png");
+}
+
+function formatSvgNumber(value) {
+  return Number(value.toFixed(2));
+}
+
+function contourToSvgPath({ points, extendedStart, extendedEnd }) {
+  let path = `M ${formatSvgNumber(extendedStart[0])} ${formatSvgNumber(extendedStart[1])}`;
+  path += ` L ${formatSvgNumber(points[0])} ${formatSvgNumber(points[1])}`;
+
+  for (let index = 2; index < points.length; index += 6) {
+    path += ` C ${formatSvgNumber(points[index])} ${formatSvgNumber(points[index + 1])}`;
+    path += ` ${formatSvgNumber(points[index + 2])} ${formatSvgNumber(points[index + 3])}`;
+    path += ` ${formatSvgNumber(points[index + 4])} ${formatSvgNumber(points[index + 5])}`;
+  }
+
+  path += ` L ${formatSvgNumber(extendedEnd[0])} ${formatSvgNumber(extendedEnd[1])}`;
+  return path;
+}
+
+function escapeXml(value) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&apos;"
+  })[character]);
+}
+
+function createSvg(settings) {
+  const geometries = buildContourGeometries(settings);
+  const paths = geometries.map((geometry) => `    <path d="${contourToSvgPath(geometry)}" />`).join("\n");
+  const dotOpacity = Math.min(1, settings.opacity / 100 + 0.18);
+  const dots = settings.showDots
+    ? getDotPositions(geometries.map(({ points }) => points), settings, motionTime)
+        .map(({ x, y, radius }) => `    <circle cx="${formatSvgNumber(x)}" cy="${formatSvgNumber(y)}" r="${formatSvgNumber(radius)}" />`)
+        .join("\n")
+    : "";
+  let signature = "";
+
+  if (settings.showSignature && settings.signature) {
+    const measureContext = document.createElement("canvas").getContext("2d");
+    measureContext.font = "700 21px Arial, Helvetica, sans-serif";
+    const width = measureContext.measureText(settings.signature).width;
+    const lengthAttribute = width > 330 ? ' textLength="330" lengthAdjust="spacingAndGlyphs"' : "";
+    signature = `  <text x="858" y="1074" fill="${settings.signatureColor}" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" text-anchor="end"${lengthAttribute}>${escapeXml(settings.signature)}</text>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${REFERENCE_WIDTH}" height="${REFERENCE_HEIGHT}" viewBox="0 0 ${REFERENCE_WIDTH} ${REFERENCE_HEIGHT}">
+  <rect width="${REFERENCE_WIDTH}" height="${REFERENCE_HEIGHT}" fill="${settings.background}" />
+  <g fill="none" stroke="${settings.lineColor}" stroke-width="${settings.lineWidth}" stroke-opacity="${settings.opacity / 100}" stroke-linecap="round" stroke-linejoin="round">
+${paths}
+  </g>
+${dots ? `  <g fill="${settings.lineColor}" fill-opacity="${dotOpacity}">\n${dots}\n  </g>` : ""}
+${signature}
+</svg>`;
+}
+
+function exportSvg() {
+  const svg = createSvg(readSettings());
+  downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), "contour-poster.svg");
+}
+
+form.addEventListener("input", update);
+resetButton.addEventListener("click", resetControls);
+pauseButton.addEventListener("click", toggleMotion);
+exportSvgButton.addEventListener("click", exportSvg);
+exportPngButton.addEventListener("click", exportPng);
+
+const resizeObserver = new ResizeObserver(scheduleDraw);
+resizeObserver.observe(canvas);
+update();

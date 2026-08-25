@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#efefe9" />
+    <title>Contour Lab</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="control-panel" aria-label="Contour controls">
+        <header class="panel-header">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div><p>Generative poster tool</p><h1>Contour Lab</h1></div>
+        </header>
+
+        <form id="controls">
+          <fieldset>
+            <legend>Arrangement</legend>
+            <label class="range-control" for="line-count"><span>Lines <output for="line-count">10</output></span><input id="line-count" name="lineCount" type="range" min="2" max="24" value="10" /></label>
+            <label class="range-control" for="center-x"><span>Center X <output for="center-x">0%</output></span><input id="center-x" name="centerX" type="range" min="-35" max="35" value="0" /></label>
+            <label class="range-control" for="center-y"><span>Center Y <output for="center-y">0%</output></span><input id="center-y" name="centerY" type="range" min="-35" max="35" value="0" /></label>
+            <label class="range-control" for="spread"><span>Line spread <output for="spread">100%</output></span><input id="spread" name="spread" type="range" min="35" max="175" value="100" /></label>
+            <label class="range-control" for="bend"><span>Contour bend <output for="bend">100%</output></span><input id="bend" name="bend" type="range" min="55" max="150" value="100" /></label>
+            <label class="range-control" for="rotation"><span>Rotation <output for="rotation">0°</output></span><input id="rotation" name="rotation" type="range" min="-25" max="25" value="0" /></label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Stroke</legend>
+            <label class="range-control" for="line-width"><span>Width <output for="line-width">3px</output></span><input id="line-width" name="lineWidth" type="range" min="1" max="8" step="0.5" value="3" /></label>
+            <label class="range-control" for="opacity"><span>Opacity <output for="opacity">78%</output></span><input id="opacity" name="opacity" type="range" min="10" max="100" value="78" /></label>
+            <label class="toggle-control" for="show-dots"><span>Moving dots</span><input id="show-dots" name="showDots" type="checkbox" /><span class="toggle" aria-hidden="true"></span></label>
+            <button class="motion-button" id="pause-button" type="button" aria-pressed="false" disabled>Pause dots</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>Palette</legend>
+            <div class="color-grid">
+              <label class="color-control" for="background-color"><span>Background</span><span class="color-value" data-color-value="background">#315EA8</span><input id="background-color" name="background" type="color" value="#315ea8" /></label>
+              <label class="color-control" for="line-color"><span>Contours</span><span class="color-value" data-color-value="lineColor">#EDF4FF</span><input id="line-color" name="lineColor" type="color" value="#edf4ff" /></label>
+              <label class="color-control" for="signature-color"><span>Signature</span><span class="color-value" data-color-value="signatureColor">#FFFFFF</span><input id="signature-color" name="signatureColor" type="color" value="#ffffff" /></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Signature</legend>
+            <label class="text-control" for="signature"><span>Text</span><input id="signature" name="signature" type="text" value="Open Offering" maxlength="42" /></label>
+            <label class="toggle-control" for="show-signature"><span>Show signature</span><input id="show-signature" name="showSignature" type="checkbox" checked /><span class="toggle" aria-hidden="true"></span></label>
+          </fieldset>
+        </form>
+
+        <footer class="panel-actions">
+          <button class="secondary-button" id="reset-button" type="button">Reset</button>
+          <button class="secondary-button" id="export-svg-button" type="button">Export SVG</button>
+          <button class="primary-button" id="export-png-button" type="button">Export PNG</button>
+        </footer>
+      </aside>
+
+      <section class="preview-pane" aria-label="Live poster preview">
+        <header class="preview-header"><div><span class="live-dot"></span>Live preview</div><span>878 × 1180</span></header>
+        <div class="preview-stage"><div class="poster-frame"><canvas class="contours" role="img" aria-label="Live preview of the generated contour poster"></canvas></div></div>
+      </section>
+    </main>
+    <script src="script.js"></script>
+  </body>
+</html>
