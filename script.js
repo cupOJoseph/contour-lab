@@ -37,6 +37,7 @@ const SOURCE_CONTOURS = [
 
 const form = document.querySelector("#controls");
 const canvas = document.querySelector(".contours");
+const randomizeButton = document.querySelector("#randomize-button");
 const resetButton = document.querySelector("#reset-button");
 const pauseButton = document.querySelector("#pause-button");
 const exportSvgButton = document.querySelector("#export-svg-button");
@@ -339,6 +340,27 @@ function resetControls() {
   update();
 }
 
+function randomInteger(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomizeContours() {
+  const ranges = {
+    lineCount: [5, 20],
+    centerX: [-30, 30],
+    centerY: [-30, 30],
+    spread: [55, 155],
+    bend: [65, 145],
+    rotation: [-25, 25]
+  };
+
+  Object.entries(ranges).forEach(([name, [min, max]]) => {
+    form.elements.namedItem(name).value = randomInteger(min, max);
+  });
+
+  update();
+}
+
 function downloadBlob(blob, filename) {
   const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
@@ -425,6 +447,7 @@ function exportSvg() {
 }
 
 form.addEventListener("input", update);
+randomizeButton.addEventListener("click", randomizeContours);
 resetButton.addEventListener("click", resetControls);
 pauseButton.addEventListener("click", toggleMotion);
 exportSvgButton.addEventListener("click", exportSvg);
