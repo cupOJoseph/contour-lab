@@ -109,12 +109,65 @@ function transformPoint(x, y, centerPoint, settings) {
   ];
 }
 
+function normalizeVector(x, y) {
+  const length = Math.hypot(x, y) || 1;
+  return [x / length, y / length];
+}
+
+function smoothContourJoins(points, amount) {
+  if (amount <= 0) return points;
+  const smoothed = [...points];
+  const segmentCount = (points.length - 2) / 6;
+
+  for (let join = 1; join < segmentCount; join += 1) {
+    const anchorIndex = join * 6;
+    const previousAnchorIndex = (join - 1) * 6;
+    const nextAnchorIndex = (join + 1) * 6;
+    const previousControlIndex = anchorIndex - 2;
+    const nextControlIndex = anchorIndex + 2;
+    const anchorX = points[anchorIndex];
+    const anchorY = points[anchorIndex + 1];
+    const incomingX = anchorX - points[previousAnchorIndex];
+    const incomingY = anchorY - points[previousAnchorIndex + 1];
+    const outgoingX = points[nextAnchorIndex] - anchorX;
+    const outgoingY = points[nextAnchorIndex + 1] - anchorY;
+    const incomingDirection = normalizeVector(incomingX, incomingY);
+    const outgoingDirection = normalizeVector(outgoingX, outgoingY);
+    const tangent = normalizeVector(
+      incomingDirection[0] + outgoingDirection[0],
+      incomingDirection[1] + outgoingDirection[1]
+    );
+    const incomingHandle = Math.min(
+      Math.hypot(anchorX - points[previousControlIndex], anchorY - points[previousControlIndex + 1]),
+      Math.hypot(incomingX, incomingY) * 0.48
+    );
+    const outgoingHandle = Math.min(
+      Math.hypot(points[nextControlIndex] - anchorX, points[nextControlIndex + 1] - anchorY),
+      Math.hypot(outgoingX, outgoingY) * 0.48
+    );
+    const targets = [
+      [previousControlIndex, anchorX - tangent[0] * incomingHandle, anchorY - tangent[1] * incomingHandle],
+      [nextControlIndex, anchorX + tangent[0] * outgoingHandle, anchorY + tangent[1] * outgoingHandle]
+    ];
+
+    targets.forEach(([index, targetX, targetY]) => {
+      smoothed[index] = points[index] + (targetX - points[index]) * amount;
+      smoothed[index + 1] = points[index + 1] + (targetY - points[index + 1]) * amount;
+    });
+  }
+
+  return smoothed;
+}
+
 function buildContourGeometry(points, centerPoints, settings) {
-  const transformed = [];
+  let transformed = [];
 
   for (let index = 0; index < points.length; index += 2) {
     transformed.push(...transformPoint(points[index], points[index + 1], [centerPoints[index], centerPoints[index + 1]], settings));
   }
+
+  const smoothing = Math.min(1, Math.max(0, (settings.spread - 100) / 50));
+  transformed = smoothContourJoins(transformed, smoothing);
 
   const last = transformed.length - 2;
   const startDirectionX = transformed[0] - transformed[2];
