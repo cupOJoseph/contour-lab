@@ -6,6 +6,8 @@ const DOTS_PER_LINE = 2;
 const DOT_TRAVEL_MS = 7000;
 
 const DEFAULTS = Object.freeze({
+  canvasWidth: REFERENCE_WIDTH,
+  canvasHeight: REFERENCE_HEIGHT,
   lineCount: 10,
   centerX: 0,
   centerY: 0,
@@ -37,6 +39,8 @@ const SOURCE_CONTOURS = [
 
 const form = document.querySelector("#controls");
 const canvas = document.querySelector(".contours");
+const posterFrame = document.querySelector(".poster-frame");
+const canvasSizeLabel = document.querySelector("#canvas-size-label");
 const randomizeButton = document.querySelector("#randomize-button");
 const resetButton = document.querySelector("#reset-button");
 const pauseButton = document.querySelector("#pause-button");
@@ -47,10 +51,19 @@ let motionTime = 0;
 let previousFrameTime;
 let motionPaused = false;
 
+function readDimension(value, fallback) {
+  const dimension = Math.round(Number(value));
+  return Number.isFinite(dimension) && dimension > 0
+    ? Math.min(4096, Math.max(256, dimension))
+    : fallback;
+}
+
 function readSettings() {
   const data = new FormData(form);
 
   return {
+    canvasWidth: readDimension(data.get("canvasWidth"), REFERENCE_WIDTH),
+    canvasHeight: readDimension(data.get("canvasHeight"), REFERENCE_HEIGHT),
     lineCount: Number(data.get("lineCount")),
     centerX: Number(data.get("centerX")),
     centerY: Number(data.get("centerY")),
@@ -224,6 +237,30 @@ function drawMovingDots(context, contours, settings, timestamp) {
   context.restore();
 }
 
+function getSignatureLayout(width, height) {
+  const scale = Math.min(width / REFERENCE_WIDTH, height / REFERENCE_HEIGHT);
+  return {
+    x: width - 20 * scale,
+    y: height - (REFERENCE_HEIGHT - 1074) * scale,
+    fontSize: 21 * scale,
+    maxWidth: 330 * scale
+  };
+}
+
+function drawSignature(context, width, height, settings) {
+  if (!settings.showSignature || !settings.signature) return;
+  const layout = getSignatureLayout(width, height);
+
+  context.save();
+  context.globalAlpha = 1;
+  context.fillStyle = settings.signatureColor;
+  context.font = `700 ${layout.fontSize}px Arial, Helvetica, sans-serif`;
+  context.textAlign = "right";
+  context.textBaseline = "alphabetic";
+  context.fillText(settings.signature, layout.x, layout.y, layout.maxWidth);
+  context.restore();
+}
+
 function renderScene(context, width, height, settings, timestamp = 0) {
   const scale = Math.max(width / REFERENCE_WIDTH, height / REFERENCE_HEIGHT);
   const artworkWidth = REFERENCE_WIDTH * scale;
@@ -246,15 +283,8 @@ function renderScene(context, width, height, settings, timestamp = 0) {
 
   if (settings.showDots) drawMovingDots(context, geometries.map(({ points }) => points), settings, timestamp);
 
-  if (settings.showSignature && settings.signature) {
-    context.globalAlpha = 1;
-    context.fillStyle = settings.signatureColor;
-    context.font = "700 21px Arial, Helvetica, sans-serif";
-    context.textAlign = "right";
-    context.textBaseline = "alphabetic";
-    context.fillText(settings.signature, 858, 1074, 330);
-  }
   context.restore();
+  drawSignature(context, width, height, settings);
 }
 
 function drawPreview(timestamp = 0) {
@@ -306,6 +336,9 @@ function updateLabels() {
   ["background", "lineColor", "signatureColor"].forEach((name) => {
     document.querySelector(`[data-color-value="${name}"]`).textContent = settings[name].toUpperCase();
   });
+
+  posterFrame.style.setProperty("--canvas-ratio", settings.canvasWidth / settings.canvasHeight);
+  canvasSizeLabel.textContent = `${settings.canvasWidth} × ${settings.canvasHeight}`;
 }
 
 function update() {
@@ -371,15 +404,16 @@ function downloadBlob(blob, filename) {
 }
 
 function exportPng() {
+  const settings = readSettings();
   const exportCanvas = document.createElement("canvas");
   const context = exportCanvas.getContext("2d");
-  exportCanvas.width = REFERENCE_WIDTH;
-  exportCanvas.height = REFERENCE_HEIGHT;
-  renderScene(context, REFERENCE_WIDTH, REFERENCE_HEIGHT, readSettings(), motionTime);
+  exportCanvas.width = settings.canvasWidth;
+  exportCanvas.height = settings.canvasHeight;
+  renderScene(context, settings.canvasWidth, settings.canvasHeight, settings, motionTime);
 
   exportCanvas.toBlob((blob) => {
     if (!blob) return;
-    downloadBlob(blob, "contour-poster.png");
+    downloadBlob(blob, `contour-poster-${settings.canvasWidth}x${settings.canvasHeight}.png`);
   }, "image/png");
 }
 
@@ -413,6 +447,9 @@ function escapeXml(value) {
 
 function createSvg(settings) {
   const geometries = buildContourGeometries(settings);
+  const scale = Math.max(settings.canvasWidth / REFERENCE_WIDTH, settings.canvasHeight / REFERENCE_HEIGHT);
+  const offsetX = (settings.canvasWidth - REFERENCE_WIDTH * scale) / 2;
+  const offsetY = (settings.canvasHeight - REFERENCE_HEIGHT * scale) / 2;
   const paths = geometries.map((geometry) => `    <path d="${contourToSvgPath(geometry)}" />`).join("\n");
   const dotOpacity = Math.min(1, settings.opacity / 100 + 0.18);
   const dots = settings.showDots
@@ -423,27 +460,31 @@ function createSvg(settings) {
   let signature = "";
 
   if (settings.showSignature && settings.signature) {
+    const layout = getSignatureLayout(settings.canvasWidth, settings.canvasHeight);
     const measureContext = document.createElement("canvas").getContext("2d");
-    measureContext.font = "700 21px Arial, Helvetica, sans-serif";
+    measureContext.font = `700 ${layout.fontSize}px Arial, Helvetica, sans-serif`;
     const width = measureContext.measureText(settings.signature).width;
-    const lengthAttribute = width > 330 ? ' textLength="330" lengthAdjust="spacingAndGlyphs"' : "";
-    signature = `  <text x="858" y="1074" fill="${settings.signatureColor}" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" text-anchor="end"${lengthAttribute}>${escapeXml(settings.signature)}</text>`;
+    const lengthAttribute = width > layout.maxWidth ? ` textLength="${formatSvgNumber(layout.maxWidth)}" lengthAdjust="spacingAndGlyphs"` : "";
+    signature = `  <text x="${formatSvgNumber(layout.x)}" y="${formatSvgNumber(layout.y)}" fill="${settings.signatureColor}" font-family="Arial, Helvetica, sans-serif" font-size="${formatSvgNumber(layout.fontSize)}" font-weight="700" text-anchor="end"${lengthAttribute}>${escapeXml(settings.signature)}</text>`;
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${REFERENCE_WIDTH}" height="${REFERENCE_HEIGHT}" viewBox="0 0 ${REFERENCE_WIDTH} ${REFERENCE_HEIGHT}">
-  <rect width="${REFERENCE_WIDTH}" height="${REFERENCE_HEIGHT}" fill="${settings.background}" />
+<svg xmlns="http://www.w3.org/2000/svg" width="${settings.canvasWidth}" height="${settings.canvasHeight}" viewBox="0 0 ${settings.canvasWidth} ${settings.canvasHeight}">
+  <rect width="${settings.canvasWidth}" height="${settings.canvasHeight}" fill="${settings.background}" />
+  <g transform="translate(${formatSvgNumber(offsetX)} ${formatSvgNumber(offsetY)}) scale(${formatSvgNumber(scale)})">
   <g fill="none" stroke="${settings.lineColor}" stroke-width="${settings.lineWidth}" stroke-opacity="${settings.opacity / 100}" stroke-linecap="round" stroke-linejoin="round">
 ${paths}
   </g>
 ${dots ? `  <g fill="${settings.lineColor}" fill-opacity="${dotOpacity}">\n${dots}\n  </g>` : ""}
+  </g>
 ${signature}
 </svg>`;
 }
 
 function exportSvg() {
-  const svg = createSvg(readSettings());
-  downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), "contour-poster.svg");
+  const settings = readSettings();
+  const svg = createSvg(settings);
+  downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), `contour-poster-${settings.canvasWidth}x${settings.canvasHeight}.svg`);
 }
 
 form.addEventListener("input", update);

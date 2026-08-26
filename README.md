@@ -6,10 +6,11 @@ controls on the left and see the canvas update instantly on the right.
 ## Features
 
 - Control line count, spread, center, bend, and rotation
+- Set a custom canvas width and height with a live aspect-ratio preview
 - Customize background, contour, and signature colors
 - Add animated dots, then pause or resume their motion
 - Edit or hide the poster signature
-- Export the finished design as an 878 × 1180 PNG or editable SVG
+- Export the finished design at the chosen size as a PNG or editable SVG
 - Responsive layout with no framework or build step
 
 ## Live site

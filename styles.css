@@ -133,6 +133,7 @@ legend {
 }
 
 .range-control > span,
+.number-control > span,
 .text-control > span,
 .toggle-control > span:first-child {
   display: flex;
@@ -147,6 +148,32 @@ output {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.72rem;
   font-weight: 500;
+}
+
+.size-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.number-control { display: grid; gap: 8px; }
+
+input[type="number"] {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid #c7c9c0;
+  border-radius: 5px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+input[type="number"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgb(36 93 61 / 12%);
 }
 
 input[type="range"] {
@@ -375,8 +402,9 @@ input[type="text"]:focus {
 }
 
 .poster-frame {
-  width: min(100%, calc((100svh - 105px) * 0.7441));
-  aspect-ratio: 878 / 1180;
+  --canvas-ratio: 0.7440678;
+  width: min(100%, calc((100svh - 105px) * var(--canvas-ratio)));
+  aspect-ratio: var(--canvas-ratio);
   overflow: hidden;
   background: #315ea8;
   box-shadow: 0 20px 54px rgb(45 50 42 / 22%);
