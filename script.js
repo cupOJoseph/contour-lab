@@ -20,7 +20,7 @@ const DEFAULTS = Object.freeze({
   background: "#315ea8",
   lineColor: "#edf4ff",
   signatureColor: "#ffffff",
-  signature: "Open Offering",
+  signature: "",
   showSignature: true
 });
 
