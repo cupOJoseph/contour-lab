@@ -166,7 +166,9 @@ function buildContourGeometry(points, centerPoints, settings) {
     transformed.push(...transformPoint(points[index], points[index + 1], [centerPoints[index], centerPoints[index + 1]], settings));
   }
 
-  const smoothing = Math.min(1, Math.max(0, (settings.spread - 100) / 50));
+  const spreadSmoothing = Math.min(1, Math.max(0, (settings.spread - 100) / 50));
+  const bendSmoothing = Math.min(1, Math.max(0, (100 - settings.bend) / 45));
+  const smoothing = Math.max(spreadSmoothing, bendSmoothing);
   transformed = smoothContourJoins(transformed, smoothing);
 
   const last = transformed.length - 2;
